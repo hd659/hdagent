@@ -23,15 +23,28 @@ from .planner import CommitMilestone, PlannedProject, WeeklyPlanner
 
 PI_BIN = "/Users/huanghaodong/.npm-global/bin/pi"
 DEFAULT_PI_MODEL = "local-gateway/claude-opus-5-5-high"
-DEFAULT_DAILY_QUOTA = 3
+DEFAULT_DAILY_QUOTA = 0  # 0 = unlimited within work window
 DEFAULT_THINKING = "high"
 # Autonomous work window (local time): start hour inclusive, end hour exclusive
 WORK_WINDOW = (1, 6)
 
 
+# Do not start a new milestone if fewer than this many minutes remain in the window
+LAST_START_MARGIN_MIN = 30
+MILESTONE_TIMEOUT_S = 2400
+
+
 def in_work_window(hour: Optional[int] = None) -> bool:
     h = time.localtime().tm_hour if hour is None else hour
     return WORK_WINDOW[0] <= h < WORK_WINDOW[1]
+
+
+def can_start_milestone(now: Optional[time.struct_time] = None) -> bool:
+    t = now or time.localtime()
+    if not in_work_window(t.tm_hour):
+        return False
+    minutes_left = (WORK_WINDOW[1] - t.tm_hour) * 60 - t.tm_min
+    return minutes_left >= LAST_START_MARGIN_MIN
 
 
 class LoopDaemon:
@@ -45,7 +58,7 @@ class LoopDaemon:
         self.root_dir = root_dir
         self.state_dir = state_dir
         self.pi_model = pi_model
-        self.daily_quota = max(1, int(daily_quota))
+        self.daily_quota = max(0, int(daily_quota))
         self.pid_file = os.path.join(self.state_dir, "daemon.pid")
         self.runner_pid_file = os.path.join(self.state_dir, "runner.pid")
         self.log_file = os.path.join(self.state_dir, "daemon.log")
@@ -154,6 +167,60 @@ class LoopDaemon:
             self.log(f"Pi synthesis skipped/failed ({exc}); relying on deterministic synthesizer.")
         return []
 
+    def plan_flagship_milestones_via_pi(self, signals: List[EngineeringSignal]) -> List[str]:
+        """Read the flagship ROADMAP + repo state and ask Pi for the next 3 milestones."""
+        cfg = self.planner.load_flagship()
+        if not cfg:
+            return []
+        repo_dir = cfg["local_target_dir"]
+        roadmap = ""
+        try:
+            with open(os.path.join(repo_dir, "ROADMAP.md"), "r", encoding="utf-8") as f:
+                roadmap = f.read()[:12000]
+        except Exception:
+            pass
+        done = []
+        for p in self.planner.load_or_init_projects():
+            if p.repo_name == cfg["repo_name"]:
+                done = [f"- {m.milestone_id}: {m.commit_type}({m.scope}) {m.summary} [{m.status}]" for m in p.milestones]
+        tree = ""
+        try:
+            tree = subprocess.run(["git", "ls-files"], cwd=repo_dir, capture_output=True, text=True, timeout=20).stdout[:4000]
+        except Exception:
+            pass
+        diary_sigs = "\n".join(
+            f"- [{s.date}] {s.title}: {s.summary[:160]}" for s in signals if s.source_type == "thought_diary"
+        )[:3000]
+        prompt = (
+            "【Loop Engineer 旗舰项目规划器 · 只输出纯 JSON，不调用任何工具】\n"
+            f"旗舰项目：{cfg['repo_name']} —— {cfg.get('tagline', '')}\n\n"
+            f"ROADMAP.md：\n{roadmap}\n\n已有 Milestone：\n" + "\n".join(done[-30:]) + "\n\n"
+            f"当前仓库文件：\n{tree}\n\n用户近期思考日记（只作灵感，严禁写入任何私人信息）：\n{diary_sigs}\n\n"
+            "请按 ROADMAP 当前阶段，规划接下来 3 个循序渐进、每个约 30-40 分钟可完成、可用 pytest 验证的 Milestone。"
+            "可以是新功能、重构、性能、文档、示例或测试加固，必须在已有代码基础上演进，不得另起新仓库。"
+            "milestone_id 用 `" + cfg.get("id_prefix", "fs") + "-NNN` 递增编号，不得与已有重复。\n"
+            "严格只输出一个 ```json``` 代码块，格式：\n"
+            '```json\n[{"repo_name": "' + cfg["repo_name"] + '", "milestones": [{"milestone_id": "", "commit_type": "feat", '
+            '"scope": "", "summary": "", "deliverables": ["path/a.py", "tests/test_a.py"]}]}]\n```'
+        )
+        env = dict(os.environ)
+        env["PATH"] = f"/opt/homebrew/bin:/usr/local/bin:/Users/huanghaodong/.npm-global/bin:/opt/anaconda3/bin:{env.get('PATH', '')}"
+        cmd = [PI_BIN, "--print", "--model", self.pi_model, "--thinking", DEFAULT_THINKING, "--no-mcp", "--no-tools", "--", prompt]
+        try:
+            self.log(f"Planning next flagship milestones for {cfg['repo_name']} via Pi...")
+            proc = subprocess.run(cmd, cwd=repo_dir, env=env, capture_output=True, text=True, timeout=600)
+            out = proc.stdout or ""
+            match = re.search(r"```json\s*(\[.*?\])\s*```", out, re.DOTALL)
+            items = json.loads(match.group(1) if match else out.strip())
+            for it in items:
+                it["repo_name"] = cfg["repo_name"]
+            added = self.planner.merge_llm_synthesized_plan(items)
+            self.log(f"Flagship planner added: {added}")
+            return added
+        except Exception as exc:
+            self.log(f"Flagship planning failed ({exc})")
+            return []
+
     def _save_dispatch_state(self, state: Dict) -> None:
         os.makedirs(self.state_dir, exist_ok=True)
         tmp = self.dispatch_state_file + ".tmp"
@@ -213,7 +280,7 @@ class LoopDaemon:
         dstate = self._load_dispatch_state()
         daily_counts = dstate.get("daily_dispatch_counts") or {}
         today_count = int(daily_counts.get(today, 0))
-        if not force and today_count >= self.daily_quota:
+        if not force and self.daily_quota and today_count >= self.daily_quota:
             return {
                 "dispatched": False,
                 "reason": f"Daily quota reached ({today_count}/{self.daily_quota}) for {today}. Use --force to run now.",
@@ -222,7 +289,10 @@ class LoopDaemon:
         next_item = self.planner.next_actionable_milestone(repo_name=repo_name)
         if not next_item:
             signals = self.collector.collect_all()
-            self.synthesize_milestones_via_pi(signals)
+            if self.planner.load_flagship():
+                self.plan_flagship_milestones_via_pi(signals)
+            else:
+                self.synthesize_milestones_via_pi(signals)
             next_item = self.planner.next_actionable_milestone(repo_name=repo_name)
         if not next_item:
             return {"dispatched": False, "reason": "All planned milestones completed."}
@@ -278,7 +348,7 @@ class LoopDaemon:
                 stdout=log_f,
                 stderr=subprocess.STDOUT,
                 text=True,
-                timeout=1200,
+                timeout=MILESTONE_TIMEOUT_S,
             )
 
         # Check whether milestone was actually completed
@@ -412,28 +482,37 @@ class LoopDaemon:
             }
 
         dispatch_res = None
-        if auto_dispatch and not in_work_window():
+        if auto_dispatch and not can_start_milestone():
             dispatch_res = {"dispatched": False, "reason": f"Outside work window {WORK_WINDOW[0]:02d}:00-{WORK_WINDOW[1]:02d}:00"}
         elif auto_dispatch:
             try:
                 # Execute all remaining milestones for today's quota consecutively
                 # so closing the Mac lid later won't interrupt today's 2nd and 3rd commits.
                 today = time.strftime("%Y-%m-%d")
-                while in_work_window():
+                fails = 0
+                while can_start_milestone():
                     dstate = self._load_dispatch_state()
                     today_done = int((dstate.get("daily_dispatch_counts") or {}).get(today, 0))
-                    if today_done >= self.daily_quota:
+                    if self.daily_quota and today_done >= self.daily_quota:
                         break
                     nxt = self.planner.next_actionable_milestone()
-                    if not nxt and signals:
-                        self.synthesize_milestones_via_pi(signals)
+                    if not nxt:
+                        if self.planner.load_flagship():
+                            self.plan_flagship_milestones_via_pi(signals)
+                        elif signals:
+                            self.synthesize_milestones_via_pi(signals)
                         nxt = self.planner.next_actionable_milestone()
                     if not nxt:
                         break
                     res = self.dispatch_next_milestone_to_model(force=False)
                     dispatch_res = res
-                    if not res.get("dispatched") or not res.get("completed"):
+                    if not res.get("dispatched"):
                         break
+                    if not res.get("completed"):
+                        fails += 1
+                        if fails >= 3:
+                            break
+                        time.sleep(30)
 
                 # Refresh next_item after dispatch so status_payload reflects post-dispatch queue
                 next_item = self.planner.next_actionable_milestone()

@@ -237,6 +237,16 @@ class WeeklyPlanner:
     def __init__(self, state_dir: str = "/Users/huanghaodong/Desktop/project/.state"):
         self.state_dir = state_dir
         self.backlog_file = os.path.join(self.state_dir, "backlog.json")
+        self.flagship_file = os.path.join(self.state_dir, "flagship.json")
+
+    def load_flagship(self) -> Optional[Dict]:
+        """Single long-lived flagship project. When set, only its milestones are dispatched."""
+        try:
+            with open(self.flagship_file, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            return cfg if cfg.get("repo_name") else None
+        except Exception:
+            return None
 
     def load_or_init_projects(self, force_reset: bool = False) -> List[PlannedProject]:
         os.makedirs(self.state_dir, exist_ok=True)
@@ -303,7 +313,8 @@ class WeeklyPlanner:
                 added_counts[target.repo_name] += 1
 
         self.save_projects(projects)
-        self.auto_synthesize_from_signals(signals)
+        if not self.load_flagship():
+            self.auto_synthesize_from_signals(signals)
         return added_counts
 
     def auto_synthesize_from_signals(self, signals: List[EngineeringSignal]) -> List[str]:
@@ -512,6 +523,9 @@ class WeeklyPlanner:
     def next_actionable_milestone(self, repo_name: Optional[str] = None) -> Optional[Dict]:
         """Return the next pending milestone across the weekly plan (or for a specific repo)."""
         projects = self.load_or_init_projects()
+        flagship = self.load_flagship()
+        if flagship and not repo_name:
+            repo_name = flagship["repo_name"]
         for proj in projects:
             if repo_name and proj.repo_name != repo_name:
                 continue
