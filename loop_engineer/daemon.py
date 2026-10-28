@@ -24,6 +24,14 @@ from .planner import CommitMilestone, PlannedProject, WeeklyPlanner
 PI_BIN = "/Users/huanghaodong/.npm-global/bin/pi"
 DEFAULT_PI_MODEL = "local-gateway/claude-opus-5-5-high"
 DEFAULT_DAILY_QUOTA = 3
+DEFAULT_THINKING = "high"
+# Autonomous work window (local time): start hour inclusive, end hour exclusive
+WORK_WINDOW = (1, 6)
+
+
+def in_work_window(hour: Optional[int] = None) -> bool:
+    h = time.localtime().tm_hour if hour is None else hour
+    return WORK_WINDOW[0] <= h < WORK_WINDOW[1]
 
 
 class LoopDaemon:
@@ -125,7 +133,7 @@ class LoopDaemon:
             "--model",
             self.pi_model,
             "--thinking",
-            "low",
+            DEFAULT_THINKING,
             "--no-mcp",
             "--no-tools",
             "--",
@@ -240,7 +248,7 @@ class LoopDaemon:
             "--model",
             self.pi_model,
             "--thinking",
-            "low",
+            DEFAULT_THINKING,
             "--no-mcp",
             "--session-dir",
             project_session_dir,
@@ -404,12 +412,14 @@ class LoopDaemon:
             }
 
         dispatch_res = None
-        if auto_dispatch:
+        if auto_dispatch and not in_work_window():
+            dispatch_res = {"dispatched": False, "reason": f"Outside work window {WORK_WINDOW[0]:02d}:00-{WORK_WINDOW[1]:02d}:00"}
+        elif auto_dispatch:
             try:
                 # Execute all remaining milestones for today's quota consecutively
                 # so closing the Mac lid later won't interrupt today's 2nd and 3rd commits.
                 today = time.strftime("%Y-%m-%d")
-                while True:
+                while in_work_window():
                     dstate = self._load_dispatch_state()
                     today_done = int((dstate.get("daily_dispatch_counts") or {}).get(today, 0))
                     if today_done >= self.daily_quota:
