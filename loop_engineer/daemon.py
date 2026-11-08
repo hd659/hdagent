@@ -24,14 +24,14 @@ from .planner import CommitMilestone, PlannedProject, WeeklyPlanner
 PI_BIN = "/Users/huanghaodong/.npm-global/bin/pi"
 DEFAULT_PI_MODEL = "local-gateway/claude-opus-5-5-high"
 DEFAULT_DAILY_QUOTA = 0  # 0 = unlimited within work window
-DEFAULT_THINKING = "high"
+DEFAULT_THINKING = "medium"
 # Autonomous work window (local time): start hour inclusive, end hour exclusive
 WORK_WINDOW = (1, 6)
 
 
 # Do not start a new milestone if fewer than this many minutes remain in the window
 LAST_START_MARGIN_MIN = 30
-MILESTONE_TIMEOUT_S = 2400
+MILESTONE_TIMEOUT_S = 3600
 
 
 def in_work_window(hour: Optional[int] = None) -> bool:
@@ -197,7 +197,7 @@ class LoopDaemon:
             f"ROADMAP.md：\n{roadmap}\n\n已有 Milestone：\n" + "\n".join(done[-30:]) + "\n\n"
             f"当前仓库文件：\n{tree}\n\n用户近期思考日记（只作灵感，严禁写入任何私人信息）：\n{diary_sigs}\n\n"
             "请按 ROADMAP 当前阶段，规划接下来 3 个循序渐进、每个约 30-40 分钟可完成、可用 pytest 验证的 Milestone。"
-            "可以是新功能、重构、性能、文档、示例或测试加固，必须在已有代码基础上演进，不得另起新仓库。"
+            "可以是新功能、重构、性能、文档、示例或测试加固，必须在已有代码基础上演进，不得另起新仓库，且严禁新增或修改 `.github/workflows/` 下的文件（CI 配置统一用 `ci/ci.yml`）。"
             "milestone_id 用 `" + cfg.get("id_prefix", "fs") + "-NNN` 递增编号，不得与已有重复。\n"
             "严格只输出一个 ```json``` 代码块，格式：\n"
             '```json\n[{"repo_name": "' + cfg["repo_name"] + '", "milestones": [{"milestone_id": "", "commit_type": "feat", '
@@ -268,7 +268,8 @@ class LoopDaemon:
             f"# 若目录内有未跟踪的核心源码也可一并加入\n"
             f"ok, rev = sync.commit_files('{project.local_target_dir}', {milestone.deliverables!r}, '{milestone.commit_type}({milestone.scope}): {milestone.summary}')\n"
             f"ok_push, msg = sync.push_or_create_remote('{project.local_target_dir}', '{project.repo_name}', {project.tagline!r})\n"
-            f"WeeklyPlanner().mark_milestone_completed('{milestone.milestone_id}', time.strftime('%Y-%m-%dT%H:%M:%S%z'))\n"
+            f"if ok and ok_push:\n"
+            f"    WeeklyPlanner().mark_milestone_completed('{milestone.milestone_id}', time.strftime('%Y-%m-%dT%H:%M:%S%z'))\n"
             f"print('COMMIT:', ok, rev, 'PUSH:', ok_push, msg)\n"
             f"```\n"
             f"4. 执行完成后直接输出简短总结并结束，不要询问用户。"
@@ -341,19 +342,25 @@ class LoopDaemon:
         with open(run_log_path, "w", encoding="utf-8") as log_f:
             log_f.write(f"=== {title} | model={self.pi_model} ===\n\n")
             log_f.flush()
-            proc = subprocess.run(
-                cmd,
-                cwd=proj.local_target_dir,
-                env=env,
-                stdout=log_f,
-                stderr=subprocess.STDOUT,
-                text=True,
-                timeout=MILESTONE_TIMEOUT_S,
-            )
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    cwd=proj.local_target_dir,
+                    env=env,
+                    stdout=log_f,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    timeout=MILESTONE_TIMEOUT_S,
+                )
+                return_code = proc.returncode
+            except subprocess.TimeoutExpired:
+                log_f.write(f"\n[LoopDaemon] Milestone {ms.milestone_id} timed out after {MILESTONE_TIMEOUT_S}s.\n")
+                log_f.flush()
+                return_code = 124
 
         # Check whether milestone was actually completed
         after_next = self.planner.next_actionable_milestone(repo_name=proj.repo_name)
-        completed_ok = proc.returncode == 0 and (
+        completed_ok = return_code == 0 and (
             not after_next or after_next["milestone"].milestone_id != ms.milestone_id
         )
 
@@ -368,14 +375,14 @@ class LoopDaemon:
             "repo_name": proj.repo_name,
             "model": self.pi_model,
             "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-            "exit_code": proc.returncode,
+            "exit_code": return_code,
             "completed": completed_ok,
             "log_file": run_log_path,
         }
         self._save_dispatch_state(dstate)
         self.log(
             f"Finished Pi ({self.pi_model}) for {ms.milestone_id} "
-            f"(exit_code={proc.returncode}, completed={completed_ok}, "
+            f"(exit_code={return_code}, completed={completed_ok}, "
             f"today_quota={dstate['daily_dispatch_counts'].get(today, 0)}/{self.daily_quota})"
         )
         return {
@@ -384,7 +391,7 @@ class LoopDaemon:
             "model": self.pi_model,
             "repo_name": proj.repo_name,
             "milestone_id": ms.milestone_id,
-            "exit_code": proc.returncode,
+            "exit_code": return_code,
             "completed": completed_ok,
             "today_dispatched": dstate["daily_dispatch_counts"].get(today, 0),
             "daily_quota": self.daily_quota,

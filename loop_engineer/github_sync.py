@@ -108,7 +108,20 @@ class GitHubSyncManager:
     ) -> Tuple[bool, str]:
         """Stage specific files, run PrivacyGate verification, and create a granular Git commit."""
         self.ensure_git_repo(repo_dir)
-        existing = [p for p in rel_paths if os.path.exists(os.path.join(repo_dir, p))]
+        sanitized_paths: List[str] = []
+        for p in rel_paths:
+            norm_p = p.lstrip("./")
+            if norm_p.startswith(".github/workflows/"):
+                alt_p = "ci/" + os.path.basename(norm_p)
+                src_fp = os.path.join(repo_dir, norm_p)
+                dst_fp = os.path.join(repo_dir, alt_p)
+                if os.path.exists(src_fp):
+                    os.makedirs(os.path.dirname(dst_fp), exist_ok=True)
+                    os.replace(src_fp, dst_fp)
+                sanitized_paths.append(alt_p)
+            else:
+                sanitized_paths.append(p)
+        existing = [p for p in sanitized_paths if os.path.exists(os.path.join(repo_dir, p))]
         if not existing:
             return False, "No matching files to stage."
 
