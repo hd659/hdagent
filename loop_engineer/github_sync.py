@@ -18,6 +18,7 @@ from typing import Dict, List, Optional, Tuple
 
 from .privacy import PrivacyGate
 
+PACKAGE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GIT_BIN = "/opt/homebrew/bin/git" if os.path.exists("/opt/homebrew/bin/git") else "git"
 GH_BIN = "/opt/homebrew/bin/gh" if os.path.exists("/opt/homebrew/bin/gh") else "gh"
 
@@ -25,8 +26,8 @@ GH_BIN = "/opt/homebrew/bin/gh" if os.path.exists("/opt/homebrew/bin/gh") else "
 class GitHubSyncManager:
     def __init__(
         self,
-        root_dir: str = "/Users/huanghaodong/Desktop/project",
-        state_dir: str = "/Users/huanghaodong/Desktop/project/.state",
+        root_dir: str = PACKAGE_ROOT,
+        state_dir: str = os.path.join(PACKAGE_ROOT, ".state"),
         privacy_gate: Optional[PrivacyGate] = None,
     ):
         self.root_dir = root_dir

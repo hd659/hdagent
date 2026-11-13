@@ -268,3 +268,82 @@ def test_anti_monotony_rotation_and_clean_dialog_prompts():
         assert "GitHubSyncManager" in sys_msg
         assert "### 1. 我猜你的需求是什么" in sys_msg
 
+
+def test_digital_self_core_incremental_learning_and_autonomy_gate():
+    from loop_engineer.self_core import (
+        AUTONOMY_L2_CONFIRM,
+        ActionProposal,
+        DigitalSelfCore,
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        core = DigitalSelfCore(state_dir=tmpdir)
+        sigs = [
+            EngineeringSignal(
+                signal_id="claude-a1",
+                date="2026-11-13",
+                source_type="claude_session",
+                title="[Claude/cs-api] 对齐一下，为什么这几个模型的缓存命中率差这么多",
+                summary="对齐一下，为什么这几个模型的缓存命中率差这么多，帮我直接查根因不要打补丁 / 如果可以自动修就先跟我说一声",
+                pillar="ai-infra-harness",
+                source_path="/tmp/s1.jsonl",
+            ),
+            EngineeringSignal(
+                signal_id="diary-b2",
+                date="2026-11-13",
+                source_type="thought_diary",
+                title="[Diary] 从猜你想做到数字分身并发",
+                summary="肉身开拓新边界，成熟套路下放给分身并行托管。",
+                pillar="cognitive-systems",
+                source_path="/tmp/d1.md",
+            ),
+        ]
+
+        first = core.absorb_signals_fast(sigs)
+        assert first["newly_absorbed"] == 2
+        assert first["pending_deep_count"] == 2
+
+        # Second pass on identical signals must absorb 0 duplicates
+        second = core.absorb_signals_fast(sigs)
+        assert second["newly_absorbed"] == 0
+
+        updated = core.merge_distilled_delta(
+            {
+                "decision_principles": ["遇到指标异常先拉原始日志做定量对照，拒绝凭感觉猜。"],
+                "active_intents": ["搭建跨端持续学习的个人数字分身内核 hdagent"],
+                "voice_notes": ["习惯先说“对齐一下”确认边界后再直接开干"],
+                "playbooks": [
+                    {
+                        "slug": "cache-hit-audit",
+                        "title": "跨端缓存命中率排障套路",
+                        "trigger_when": "发现某端调用同款模型变慢或缓存为 0",
+                        "steps_summary": "拉取本地会话 usage 字段对比上游返回字段，定位协议转换丢字段位置",
+                        "autonomy_level": "L2_confirm",
+                        "confidence": 0.9,
+                    }
+                ],
+            },
+            consumed_ids=["claude-a1", "diary-b2"],
+        )
+        assert updated["pending_deep_signal_ids"] == []
+        assert len(updated["playbooks"]) == 1
+        assert updated["playbooks"][0]["autonomy_level"] == AUTONOMY_L2_CONFIRM
+
+        rendered = core.render_clone_persona_context(include_utterance_samples=True)
+        assert "hdagent" in rendered
+        assert "原话切片" in rendered
+
+        prop = core.enqueue_proposal(
+            ActionProposal(
+                proposal_id="prop-001",
+                title="Restart staging worker",
+                domain="cloud_ops",
+                autonomy_level=AUTONOMY_L2_CONFIRM,
+                rationale="Memory RSS exceeded threshold",
+                planned_command_or_steps="systemctl restart staging-worker",
+            )
+        )
+        assert prop["status"] == "pending"
+        assert len(core.list_proposals(status="pending")) == 1
+
+

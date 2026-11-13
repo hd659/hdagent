@@ -1,25 +1,21 @@
-# loop-engineer
+# hdagent
 
-Conversation-driven autonomous GitHub incubator and progressive commit engine (`hd`).
+Digital Self Kernel & Parallel Clone Engine built on headless `Pi` sessions.
 
-`loop-engineer` continuously observes daily human-agent problem solving (debugging logs, architectural discussions, friction points, and cognitive models) and turns those insights into clean, tested, privacy-safe open-source repositories.
+`hdagent` continuously learns how its operator thinks, decides, and acts across multiple coding agents (`Claude Code`, `Antigravity`, `Pi`, `Codex`) and thought diaries, enabling parallelized self-execution across progressive autonomy tiers (`L1_sandbox` -> `L2_confirm` -> `L3_auto`).
 
-## Architecture
+See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the full 4-layer design.
 
-1. **Multi-Source Collector (`loop_engineer/collector.py`)**
-   Polls local engineering artifacts (conversation ledgers, debugging playbooks, thought diaries, and agent session transcripts) with zero idle token overhead.
-2. **Persona & Pillar Filter (`loop_engineer/persona.py`)**
-   Routes every extracted signal into one of four core engineering pillars:
-   - `workflow-mcp`: Campus, media, and network workflow automation & MCP bridges
-   - `ai-infra-harness`: Rolling-window LLM quota routing, prompt-cache affinity, and multi-agent harness sync
-   - `quant-fintech-web3`: EVM delta-neutral vaults, perpetuals funding-rate microstructure, and Byzantine-resilient FL
-   - `cognitive-systems`: Executable models for transaction-cost economics and stylometry
+## Core Modules
+
+1. **Cross-Harness Signal Collector (`loop_engineer/collector.py`)**
+   Zero-token local polling across Claude Code, Antigravity, Pi, Codex, and thought diaries with noise/support-ticket/privacy filtering.
+2. **Digital Self Kernel (`loop_engineer/self_core.py`)**
+   Incremental cursor-based learning (`self_core.json`) capturing decision principles, redlines, active intents, repeatable playbooks (`L1 / L2 / L3`), and authentic phrasing rhythm.
 3. **Zero-Leak Privacy Gate (`loop_engineer/privacy.py`)**
-   Enforces pre-commit redaction across all staged files, blocking API keys, personal identifiers, student IDs, and private infrastructure endpoints before any commit reaches Git.
-4. **Dual-Pool Progressive Planner (`loop_engineer/planner.py`)**
-   Combines a 7-day flagship repository schedule with dynamic conversation signals, ensuring 2-4 high-signal, test-verified commits every day even on days without new conversations.
-5. **Blank-Account GitHub Binder (`loop_engineer/github_sync.py`)**
-   Supports offline progressive commits and retroactive Git author normalization (`user.name` / `user.email`) when binding a fresh GitHub account.
+   Structural regexes + gitignored `.state/private_denylist.json` preventing credentials, personal identifiers, or private endpoints from entering prompts or commits.
+4. **Subtext Planner & Clone Dispatcher (`loop_engineer/planner.py`, `loop_engineer/daemon.py`)**
+   Infers high-leverage projects via hidden `--no-session` synthesis (`claude-opus-5-5`, `thinking=high`) and executes them in clean natural-voice Pi sessions with Super-Agent summaries.
 
 ## Quickstart
 
@@ -27,15 +23,15 @@ Conversation-driven autonomous GitHub incubator and progressive commit engine (`
 # 1. Run test suite
 pytest -q
 
-# 2. Poll local conversations & inspect next milestone
-python3 loop.py status
+# 2. Inspect learned Digital Self Kernel
+python3 hdagent.py profile
 
-# 3. View the 7-day flagship repository plan
-python3 loop.py plan
+# 3. Distill newly accumulated cross-agent conversations into SelfCore
+python3 hdagent.py learn --force
 
-# 4. Start the detached background daemon (polls every hour)
-python3 loop.py daemon --interval 3600 --detach
+# 4. Poll signals & inspect status (0 LLM tokens)
+python3 hdagent.py status
 
-# 5. Bind a new GitHub account, normalize commit authors, and push all repos
-python3 loop.py bind-github --login-web --username <NEW_GITHUB_USER> --push
+# 5. Start detached background daemon
+python3 hdagent.py start-daemon --interval 1800
 ```

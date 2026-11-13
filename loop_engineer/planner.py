@@ -4,7 +4,7 @@ Dual-Engine Backlog & Subtext-Driven Project Rotation Planner.
 Operates on Two Distinct Engines:
 1. `extrapolate_new` (~80%): Brand-new standalone tools/products inferred from Haodong's
    cross-agent conversations (Claude Code, Antigravity, Pi, Codex) and thought diaries,
-   built cleanly under `~/Desktop/project/workspaces/<repo_name>`.
+   built cleanly under `~/Desktop/hdagent/workspaces/<repo_name>`.
 2. `self_optimize` (~20%): Substantial new capabilities on safe local projects
    (excluding live production gateway `Desktop/cs/api`).
 
@@ -19,6 +19,7 @@ from typing import Dict, List, Optional
 
 from .collector import EngineeringSignal
 
+PACKAGE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOME_DIR = os.path.expanduser("~")
 MAX_CONSECUTIVE_SAME_REPO = 2
 SATURATED_MILESTONE_CAP = 6
@@ -61,7 +62,7 @@ def build_default_weekly_projects() -> List[PlannedProject]:
             repo_name="loop-engineer",
             pillar="ai-infra-harness",
             mode="extrapolate_new",
-            local_target_dir=f"{HOME_DIR}/Desktop/project",
+            local_target_dir=PACKAGE_ROOT,
             tagline="Conversation-driven autonomous GitHub incubator & existing-project self-optimizer.",
             origin_context=(
                 "Built to continuously analyze daily human-agent interactions and thought diaries, "
@@ -126,7 +127,7 @@ def build_default_weekly_projects() -> List[PlannedProject]:
             repo_name="single-thread-lock",
             pillar="cognitive-systems",
             mode="extrapolate_new",
-            local_target_dir=f"{HOME_DIR}/Desktop/project/workspaces/single-thread-lock",
+            local_target_dir=os.path.join(PACKAGE_ROOT, "workspaces", "single-thread-lock"),
             tagline="[New Extrapolated Project] Anti-TodoList single-aperture execution lock for networked thinkers.",
             origin_context="Extrapolated from Phantom Overload & Activation Friction thought diary.",
             scheduled_days=["2026-10-27 (Day 3)", "2026-10-28 (Day 4)"],
@@ -152,7 +153,7 @@ def build_default_weekly_projects() -> List[PlannedProject]:
             repo_name="submission-truth-auditor",
             pillar="workflow-mcp",
             mode="extrapolate_new",
-            local_target_dir=f"{HOME_DIR}/Desktop/project/workspaces/submission-truth-auditor",
+            local_target_dir=os.path.join(PACKAGE_ROOT, "workspaces", "submission-truth-auditor"),
             tagline="[New Extrapolated Project] Pre-submission numeric cross-verifier & Viva Question Generator.",
             origin_context="Extrapolated from pre-submission report numeric verification and Viva rediscuss prep.",
             scheduled_days=["2026-10-28 (Day 4)", "2026-10-29 (Day 5)"],
@@ -197,7 +198,7 @@ def build_default_weekly_projects() -> List[PlannedProject]:
             repo_name="dex-cex-friction-radar",
             pillar="quant-fintech-web3",
             mode="extrapolate_new",
-            local_target_dir=f"{HOME_DIR}/Desktop/project/workspaces/dex-cex-friction-radar",
+            local_target_dir=os.path.join(PACKAGE_ROOT, "workspaces", "dex-cex-friction-radar"),
             tagline="[New Extrapolated Project] On-chain DEX vs CEX perpetuals transaction-cost arbitrage radar & Solidity atomic vault.",
             origin_context="Synthesizes Transaction Cost Economics diary with on-chain quant exploration.",
             scheduled_days=["2026-10-30 (Day 6)", "2026-10-31 (Day 7)"],
@@ -223,7 +224,7 @@ def build_default_weekly_projects() -> List[PlannedProject]:
 
 
 class WeeklyPlanner:
-    def __init__(self, state_dir: str = f"{HOME_DIR}/Desktop/project/.state"):
+    def __init__(self, state_dir: str = os.path.join(PACKAGE_ROOT, ".state")):
         self.state_dir = state_dir
         self.backlog_file = os.path.join(self.state_dir, "backlog.json")
         self.flagship_file = os.path.join(self.state_dir, "flagship.json")
@@ -326,7 +327,7 @@ class WeeklyPlanner:
                     repo_name="oauth-imap-otp-extractor",
                     pillar="ai-infra-harness",
                     mode="extrapolate_new",
-                    local_target_dir=f"{HOME_DIR}/Desktop/project/workspaces/oauth-imap-otp-extractor",
+                    local_target_dir=os.path.join(PACKAGE_ROOT, "workspaces", "oauth-imap-otp-extractor"),
                     tagline="[New Extrapolated Project] Zero-GUI XOAUTH2 IMAP OTP/Magic-Link extractor & isolated SOCKS5 browser profile launcher.",
                     origin_context="Synthesized from OAuth2 IMAP OTP extraction and isolated browser profile workflow.",
                     scheduled_days=["Dynamic Queue"],
@@ -351,7 +352,7 @@ class WeeklyPlanner:
                     repo_name="llm-edge-tarpit-guard",
                     pillar="ai-infra-harness",
                     mode="extrapolate_new",
-                    local_target_dir=f"{HOME_DIR}/Desktop/project/workspaces/llm-edge-tarpit-guard",
+                    local_target_dir=os.path.join(PACKAGE_ROOT, "workspaces", "llm-edge-tarpit-guard"),
                     tagline="[New Extrapolated Project] Zero-latency code-aware LLM moderation filter & 3-strike SSE tarpit router.",
                     origin_context="Synthesized from code-aware edge moderation filtering and progressive tarpit routing.",
                     scheduled_days=["Dynamic Queue"],
@@ -383,7 +384,7 @@ class WeeklyPlanner:
 
         for raw in items:
             repo_name = str(raw.get("repo_name") or "").strip().lower()
-            if not repo_name or repo_name in ("loop-engineer", "frictionlab", "api", "personal-ai-gateway"):
+            if not repo_name or repo_name in ("hdagent", "loop-engineer", "frictionlab", "api", "personal-ai-gateway"):
                 continue
 
             # Reject adding more milestones to an already saturated repo
@@ -391,14 +392,20 @@ class WeeklyPlanner:
                 continue
 
             mode = str(raw.get("mode") or "extrapolate_new")
+            workspaces_root = os.path.join(PACKAGE_ROOT, "workspaces")
             target_dir = str(
                 raw.get("local_target_dir")
-                or f"{HOME_DIR}/Desktop/project/workspaces/{repo_name}"
+                or os.path.join(workspaces_root, repo_name)
             )
-            # Safety rail: never let background autonomous jobs mutate live production gateway `Desktop/cs/api`
-            if "/Desktop/cs/api" in target_dir or target_dir.rstrip("/") == f"{HOME_DIR}/Desktop/project":
+            # Safety rail: never let background autonomous jobs mutate live production gateway `Desktop/cs/api` or `hdagent` root
+            if (
+                "/Desktop/cs/api" in target_dir
+                or target_dir.rstrip("/") in (PACKAGE_ROOT.rstrip("/"), f"{HOME_DIR}/Desktop/project", f"{HOME_DIR}/Desktop/hdagent")
+            ):
                 mode = "extrapolate_new"
-                target_dir = f"{HOME_DIR}/Desktop/project/workspaces/{repo_name}"
+                target_dir = os.path.join(workspaces_root, repo_name)
+            elif "/Desktop/project/workspaces/" in target_dir:
+                target_dir = os.path.join(workspaces_root, repo_name)
 
             proj_default_title = str(raw.get("chat_title") or "").strip()
             proj_default_prompt = str(raw.get("user_voice_prompt") or "").strip()

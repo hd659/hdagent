@@ -7,7 +7,7 @@ Architecture:
 - When dispatching (within daily work window up to `daily_quota=2`, or immediately via `loop.py trigger`),
   if no pending project exists, silently invokes `claude-opus-5-5` (`--thinking high --no-session`)
   to infer 1 high-value, genuinely useful project from the subtext of Haodong's multi-agent chats.
-- Executes the project in a clean Pi session (`--session-dir ~/.pi/agent/sessions/--<home>-Desktop-project--`)
+- Executes the project in a clean Pi session (`--session-dir ~/.pi/agent/sessions/--<home>-Desktop-hdagent--`)
   where:
   * Sidebar title (`--name`) = clear Chinese project title (`猜你想做 · ...`)
   * Message #1 (User) = natural first-person prompt written in Haodong's own voice
@@ -26,7 +26,9 @@ from typing import Dict, List, Optional
 from .collector import ConversationCollector, EngineeringSignal
 from .github_sync import GitHubSyncManager
 from .planner import CommitMilestone, PlannedProject, WeeklyPlanner
+from .self_core import DigitalSelfCore
 
+PACKAGE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOME_DIR = os.path.expanduser("~")
 PI_BIN = f"{HOME_DIR}/.npm-global/bin/pi"
 DEFAULT_PI_MODEL = "local-gateway/claude-opus-5-5"
@@ -53,8 +55,8 @@ def can_start_milestone(now: Optional[time.struct_time] = None) -> bool:
 class LoopDaemon:
     def __init__(
         self,
-        root_dir: str = f"{HOME_DIR}/Desktop/project",
-        state_dir: str = f"{HOME_DIR}/Desktop/project/.state",
+        root_dir: str = PACKAGE_ROOT,
+        state_dir: str = os.path.join(PACKAGE_ROOT, ".state"),
         pi_model: str = DEFAULT_PI_MODEL,
         thinking_level: str = DEFAULT_THINKING,
         daily_quota: int = DEFAULT_DAILY_QUOTA,
@@ -76,6 +78,7 @@ class LoopDaemon:
         self.collector = ConversationCollector()
         self.planner = WeeklyPlanner(state_dir=self.state_dir)
         self.git_sync = GitHubSyncManager(root_dir=self.root_dir, state_dir=self.state_dir)
+        self.self_core = DigitalSelfCore(state_dir=self.state_dir)
 
     def log(self, message: str) -> None:
         os.makedirs(self.state_dir, exist_ok=True)
@@ -157,22 +160,33 @@ class LoopDaemon:
         """
         if not signals:
             return []
+        # Evolve Digital Self Kernel incrementally if >=5 unseen conversations accumulated
+        try:
+            self.self_core.distill_delta_via_pi(
+                signals, pi_model=self.pi_model, thinking_level=self.thinking_level, min_pending=5
+            )
+        except Exception as exc:
+            self.log(f"SelfCore incremental distill skipped: {exc}")
+
+        persona_kernel = self.self_core.render_clone_persona_context(include_utterance_samples=True)
         projects = self.planner.load_or_init_projects()
         existing_repos = [f"- {p.repo_name}: {p.tagline}" for p in projects]
         recent_repos = self.planner.recent_completed_repos(limit=3)
         signal_digest = self._select_diverse_signal_digest(signals)
+        workspaces_dir = os.path.join(self.root_dir, "workspaces")
 
         synth_prompt = (
-            "你是用户的私人产品合伙人与总架构师。请仔细阅读用户在 Claude Code、Antigravity、Pi、Codex 四端与其他 Agent 的真实对话原话以及思考日记，"
-            "从中**揣摩用户的潜台词，猜测他内心真正想做、用得上、或者平时反复手动折腾却还没做成独立工具的 1 个新项目**。\n\n"
-            "【硬性选题铁律（违反任意一条即为失败）】\n"
+            "你是 `hdagent`（用户的数字分身内核）。请结合下方持续学习沉淀的【数字自我内核档案】以及用户在四端（Claude Code、Antigravity、Pi、Codex）和思考日记中的真实原话，"
+            "**站在用户本人的视角揣摩潜台词，猜出他真正想做、用得上、或者平时反复手动折腾却还没做成独立工具的 1 个新项目**。\n\n"
+            + persona_kernel
+            + "\n\n【硬性选题铁律（违反任意一条即为失败）】\n"
             "1. 猜潜台词，绝不炒冷饭：严禁把已经修完的线上小 Bug、前端按钮删改、客户售后问题拆成无聊的 `*-linter`、`*-guard`、`*-auditor` 补丁库！\n"
-            f"2. 严禁碰 `frictionlab`、`loop-engineer` 或线上生产目录 `{HOME_DIR}/Desktop/cs/api`。\n"
-            f"3. 优先孵化全新独立、完整好用的实用工具或原型产品（`mode: extrapolate_new`，存放在 `{HOME_DIR}/Desktop/project/workspaces/<repo_name>`），与下方已有仓库不重复。\n"
+            f"2. 严禁碰 `frictionlab`、`hdagent`、`loop-engineer` 或线上生产目录 `{HOME_DIR}/Desktop/cs/api`。\n"
+            f"3. 优先孵化全新独立、完整好用的实用工具或原型产品（`mode: extrapolate_new`，存放在 `{workspaces_dir}/<repo_name>`），与下方已有仓库不重复。\n"
             "4. 重质不重量：只设计 **1 个** 新项目，包含 **1 个** 一步到位、完整度高、带 CLI 命令行（或轻量本地 Web 界面）+ 核心引擎 + 完整 `README.md` + `pytest` 单元测试的 Milestone（约 4~6 个精炼文件，跑完就能直接用）。\n"
             "5. 必须同时写出：\n"
             "   - `chat_title`：显示在左侧列表的清晰中文标题，格式严格为 `猜你想做 · <8~14字直白中文名> (<repo_name>)`；\n"
-            "   - `user_voice_prompt`：完全模仿用户本人平时跟 Agent 说话的**第一人称口吻**（自然平实、直奔主题，用“我最近在……发现/总要手动……帮我做一个……”的真实语气，严禁出现 Milestone 编号、JSON、pytest 命令或机器黑话，120~240 字，让人一眼看懂需求是什么）。\n\n"
+            "   - `user_voice_prompt`：严格贴合上方【本人真实说话语感备忘】与原话切片的松弛度，用自然、不端着的第一人称日常口吻写出（100~220 字，严禁书面公文腔、严禁出现 Milestone 编号或 JSON 字段名）。\n\n"
             f"最近刚做过的仓库（请换新方向）：{recent_repos}\n"
             "已有历史仓库（避免撞题）：\n"
             + "\n".join(existing_repos)
@@ -185,7 +199,7 @@ class LoopDaemon:
             '    "repo_name": "short-kebab-name",\n'
             '    "pillar": "ai-infra-harness | workflow-mcp | quant-fintech-web3 | cognitive-systems",\n'
             '    "mode": "extrapolate_new",\n'
-            f'    "local_target_dir": "{HOME_DIR}/Desktop/project/workspaces/short-kebab-name",\n'
+            f'    "local_target_dir": "{workspaces_dir}/short-kebab-name",\n'
             '    "tagline": "Concise English GitHub repo description (under 110 chars).",\n'
             '    "origin_context": "用中文直白说明：从哪几条真实跨端对话/思考日记推导出用户有这个潜在需求。",\n'
             '    "tech_stack": ["Python", "PyTest"],\n'
@@ -260,11 +274,13 @@ class LoopDaemon:
         Keeps machine mechanics out of the visible User bubble while guaranteeing deterministic
         testing, privacy checks, GitHub push, and a Super-Agent-style Chinese final summary.
         """
+        persona_principles = self.self_core.render_clone_persona_context(include_utterance_samples=False)
         return (
-            "[LOOP ENGINEER HIDDEN EXECUTION HARNESS]\n"
-            "你正在执行一个「根据用户跨端对话潜台词自动孵化项目」的完整交付任务。\n"
+            "[HDAGENT HIDDEN EXECUTION HARNESS]\n"
+            "你正在作为 `hdagent` 的执行分身交付一个从用户跨端对话潜台词中孵化的完整项目。\n"
             "严禁读写 Obsidian Vault（严禁修改 `recent-conversations.md`），严禁在正文中使用任何 Emoji 或 LaTeX 公式。\n\n"
-            "## 1. 目标项目与交付规格\n"
+            + persona_principles
+            + "\n\n## 1. 目标项目与交付规格\n"
             f"- 仓库名：`{project.repo_name}`\n"
             f"- 本地工作目录：`{project.local_target_dir}`\n"
             f"- GitHub 描述：{project.tagline}\n"
@@ -349,8 +365,8 @@ class LoopDaemon:
         env = dict(os.environ)
         env["PATH"] = f"/opt/homebrew/bin:/usr/local/bin:{HOME_DIR}/.npm-global/bin:/opt/anaconda3/bin:{env.get('PATH', '')}"
 
-        home_slug = HOME_DIR.strip("/").replace("/", "-")
-        project_session_dir = os.path.join(HOME_DIR, ".pi", "agent", "sessions", f"--{home_slug}-Desktop-project--")
+        root_slug = os.path.abspath(self.root_dir).strip("/").replace("/", "-")
+        project_session_dir = os.path.join(HOME_DIR, ".pi", "agent", "sessions", f"--{root_slug}--")
         os.makedirs(project_session_dir, exist_ok=True)
 
         cmd = [
@@ -521,6 +537,7 @@ class LoopDaemon:
         """
         os.makedirs(self.state_dir, exist_ok=True)
         signals = self.collector.collect_all()
+        self_core_stats = self.self_core.absorb_signals_fast(signals)
         ingested = self.planner.ingest_signals(signals)
 
         dispatch_res = None
@@ -585,6 +602,7 @@ class LoopDaemon:
             "thinking": self.thinking_level,
             "daily_quota": self.daily_quota,
             "total_signals_collected": len(signals),
+            "self_core_learning": self_core_stats,
             "newly_ingested_by_repo": ingested,
             "next_actionable_milestone": next_summary,
             "last_dispatch": dispatch_res or self._load_dispatch_state(),

@@ -4,7 +4,7 @@ Multi-Source Cross-Agent User Utterance & Subtext Collector.
 Silently polls Haodong's organic conversations across all active AI harnesses and thought diaries:
 1. Claude Code Sessions (`~/.claude/projects/*/*.jsonl`)
 2. Antigravity Transcripts (`~/.gemini/antigravity/brain/*/.system_generated/logs/transcript.jsonl`)
-3. Pi Client Sessions (`~/.pi/agent/sessions/*/*.jsonl`, excluding `Desktop-project` self-runs)
+3. Pi Client Sessions (`~/.pi/agent/sessions/*/*.jsonl`, excluding `hdagent` self-build runs)
 4. Codex Sessions (`~/.codex/sessions/**/*.jsonl`)
 5. Thought Diaries (`~/Documents/diary/*.md`, excluding private relationship notes)
 6. Architectural Entries from Obsidian Recent Conversations (`08-topics/recent-conversations.md`, excluding customer support tickets)
@@ -164,6 +164,7 @@ class ConversationCollector:
             if (
                 "private-tmp" in proj_dir
                 or "Desktop-project" in proj_dir
+                or "Desktop-hdagent" in proj_dir
                 or "scratch-workspaces" in proj_dir
             ):
                 continue
@@ -238,12 +239,12 @@ class ConversationCollector:
         return signals
 
     def collect_pi_sessions(self, max_sessions: int = 12) -> List[EngineeringSignal]:
-        """Scan recent Pi Client JSONL sessions outside `Desktop/project` for organic user prompts."""
+        """Scan recent Pi Client JSONL sessions outside `hdagent` self-runs for organic user prompts."""
         if not os.path.isdir(self.pi_sessions_dir):
             return []
         candidates = []
         for sub in os.listdir(self.pi_sessions_dir):
-            if "Desktop-project" in sub or "private-tmp" in sub:
+            if "Desktop-project" in sub or "Desktop-hdagent" in sub or "private-tmp" in sub:
                 continue
             sub_dir = os.path.join(self.pi_sessions_dir, sub)
             if not os.path.isdir(sub_dir):

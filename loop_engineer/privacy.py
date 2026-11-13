@@ -67,8 +67,11 @@ DEFAULT_RULES: List[RedactionRule] = [
 ]
 
 
+PACKAGE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
 def _load_local_denylist_rules(denylist_path: Optional[str] = None) -> List[RedactionRule]:
-    path = denylist_path or os.path.expanduser("~/Desktop/project/.state/private_denylist.json")
+    path = denylist_path or os.path.join(PACKAGE_ROOT, ".state", "private_denylist.json")
     if not os.path.isfile(path):
         return []
     try:
